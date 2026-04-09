@@ -24,7 +24,7 @@ import * as PromiseUtils from './promiseUtils.js';
 import * as Util from './util.js';
 import * as DBusMenu from './dbusMenu.js';
 
-import {DBusProxy} from './dbusProxy.js';
+import { DBusProxy } from './dbusProxy.js';
 
 
 // TODO: replace with org.freedesktop and /org/freedesktop when approved
@@ -155,7 +155,7 @@ export class StatusNotifierWatcher {
             const services = [...uniqueNames.get(name)];
 
             for await (const node of nodes) {
-                const {path} = node;
+                const { path } = node;
                 const ids = services.map(s => Util.indicatorId(s, name, path));
                 if (ids.every(id => !this._items.has(id))) {
                     const service = services.find(s =>
@@ -175,7 +175,7 @@ export class StatusNotifierWatcher {
         // it would be too easy if all application behaved the same
         // instead, ayatana patched gnome apps to send a path
         // while kde apps send a bus name
-        const [service] = params;
+        let [service] = params;
         let busName, objPath;
 
         if (service.charAt(0) === '/') { // looks like a path
@@ -186,14 +186,17 @@ export class StatusNotifierWatcher {
                 busName = await Util.getUniqueBusName(invocation.get_connection(),
                     service, this._cancellable);
             } catch (e) {
-                logError(e);
+                // If we can't get the unique name, it might be because the name is owned
+                // by a sandboxed app (flatpak/snap) and we can't see it.
+                // In that case, let's just assume the sender is the owner.
+                Util.Logger.warn(`Failed to get unique bus name for ${service}, using sender as fallback`);
+                busName = invocation.get_sender();
             }
             objPath = DEFAULT_ITEM_OBJECT_PATH;
         }
 
         if (!busName || !objPath) {
-            const error = `Impossible to register an indicator for parameters '${
-                service.toString()}'`;
+            const error = `Impossible to register an indicator for parameters '${service.toString()}'`;
             Util.Logger.warn(error);
 
             invocation.return_dbus_error('org.gnome.gjs.JSError.ValueError',
@@ -213,7 +216,7 @@ export class StatusNotifierWatcher {
     }
 
     _onIndicatorDestroyed(indicator) {
-        const {uniqueId} = indicator;
+        const { uniqueId } = indicator;
         this._items.delete(uniqueId);
 
         try {

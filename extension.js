@@ -20,7 +20,9 @@ import * as StatusNotifierWatcher from './statusNotifierWatcher.js';
 import * as Interfaces from './interfaces.js';
 import * as TrayIconsManager from './trayIconsManager.js';
 import * as Util from './util.js';
-import {SettingsManager} from './settingsManager.js';
+import * as Main from 'resource:///org/gnome/shell/ui/main.js';
+import { SettingsManager } from './settingsManager.js';
+import { destroyOverflowButton } from './indicatorStatusIcon.js';
 
 export default class AppIndicatorExtension extends Extension.Extension {
     constructor(...args) {
@@ -65,6 +67,9 @@ export default class AppIndicatorExtension extends Extension.Extension {
             this._statusNotifierWatcher.destroy();
             this._statusNotifierWatcher = null;
         }
+
+        // Cleanup overflow button if it exists
+        destroyOverflowButton();
 
         SettingsManager.destroy();
     }

@@ -23,7 +23,7 @@ import * as Main from 'resource:///org/gnome/shell/ui/main.js';
 import * as Config from 'resource:///org/gnome/shell/misc/config.js';
 import * as Signals from 'resource:///org/gnome/shell/misc/signals.js';
 
-import {BaseStatusIcon} from './indicatorStatusIcon.js';
+import { BaseStatusIcon } from './indicatorStatusIcon.js';
 
 export const BUS_ADDRESS_REGEX = /([a-zA-Z0-9._-]+\.[a-zA-Z0-9.-]+)|(:[0-9]+\.[0-9]+)$/;
 
@@ -101,7 +101,25 @@ export async function getProcessName(connectionName, cancellable = null,
     const inputStream = await cmdFile.read_async(priority, cancellable);
     const bytes = await inputStream.read_bytes_async(2048, priority, cancellable);
     const textDecoder = new TextDecoder();
-    return textDecoder.decode(bytes.toArray().map(v => !v ? 0x20 : v));
+    let commandLine = textDecoder.decode(bytes.toArray().map(v => !v ? 0x20 : v));
+
+    // For Flatpak/Snap, the process might be a proxy. Try to find the real app ID in cgroups
+    if (commandLine.includes('xdg-dbus-proxy')) {
+        try {
+            const cgroupFile = Gio.File.new_for_path(`/proc/${pid}/cgroup`);
+            const cgStream = await cgroupFile.read_async(priority, cancellable);
+            const cgBytes = await cgStream.read_bytes_async(1024, priority, cancellable);
+            const cgContent = textDecoder.decode(cgBytes.toArray());
+            // Match app-flatpak-ID-SESSION.scope or similar
+            const match = cgContent.match(/app-flatpak-(.*)-[0-9]*\.scope/);
+            if (match)
+                commandLine += ` ${match[1]}`;
+        } catch (e) {
+            // Ignore
+        }
+    }
+
+    return commandLine;
 }
 
 export async function* introspectBusObject(bus, name, cancellable,
@@ -116,7 +134,7 @@ export async function* introspectBusObject(bus, name, cancellable,
     const nodeInfo = Gio.DBusNodeInfo.new_for_xml(introspection);
 
     if (!interfaces || dbusNodeImplementsInterfaces(nodeInfo, interfaces))
-        yield {nodeInfo, path};
+        yield { nodeInfo, path };
 
     if (path === '/')
         path = '';
@@ -288,7 +306,7 @@ export class Logger {
         };
 
         let thisFile = null;
-        const {stack} = new Error();
+        const { stack } = new Error();
         for (let stackLine of stack.split('\n')) {
             stackLine = stackLine.replace('resource:///org/gnome/Shell/', '');
             const [code, line] = stackLine.split(':');
@@ -317,7 +335,7 @@ export class Logger {
 
         const allLevels = Object.values(GLib.LogLevelFlags);
         const domains = GLib.getenv('G_MESSAGES_DEBUG');
-        const {name: domain} = extension.metadata;
+        const { name: domain } = extension.metadata;
         this.uuid = extension.metadata.uuid;
         Logger._domain = domain.replaceAll(' ', '-');
 
@@ -397,51 +415,51 @@ export const CancellableChild = GObject.registerClass({
             Gio.Cancellable.$gtype),
     },
 },
-class CancellableChild extends Gio.Cancellable {
-    _init(parent) {
-        if (parent && !(parent instanceof Gio.Cancellable))
-            throw TypeError('Not a valid cancellable');
+    class CancellableChild extends Gio.Cancellable {
+        _init(parent) {
+            if (parent && !(parent instanceof Gio.Cancellable))
+                throw TypeError('Not a valid cancellable');
 
-        super._init({parent});
+            super._init({ parent });
 
-        if (parent) {
-            if (parent.is_cancelled()) {
-                this.cancel();
-                return;
+            if (parent) {
+                if (parent.is_cancelled()) {
+                    this.cancel();
+                    return;
+                }
+
+                this._connectToParent();
             }
-
-            this._connectToParent();
         }
-    }
 
-    _connectToParent() {
-        this._connectId = this.parent.connect(() => {
-            this._realCancel();
+        _connectToParent() {
+            this._connectId = this.parent.connect(() => {
+                this._realCancel();
 
-            if (this._disconnectIdle)
-                return;
+                if (this._disconnectIdle)
+                    return;
 
-            this._disconnectIdle = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
-                delete this._disconnectIdle;
-                this._disconnectFromParent();
-                return GLib.SOURCE_REMOVE;
+                this._disconnectIdle = GLib.idle_add(GLib.PRIORITY_DEFAULT, () => {
+                    delete this._disconnectIdle;
+                    this._disconnectFromParent();
+                    return GLib.SOURCE_REMOVE;
+                });
             });
-        });
-    }
-
-    _disconnectFromParent() {
-        if (this._connectId && !this._disconnectIdle) {
-            this.parent.disconnect(this._connectId);
-            delete this._connectId;
         }
-    }
 
-    _realCancel() {
-        Gio.Cancellable.prototype.cancel.call(this);
-    }
+        _disconnectFromParent() {
+            if (this._connectId && !this._disconnectIdle) {
+                this.parent.disconnect(this._connectId);
+                delete this._connectId;
+            }
+        }
 
-    cancel() {
-        this._disconnectFromParent();
-        this._realCancel();
-    }
-});
+        _realCancel() {
+            Gio.Cancellable.prototype.cancel.call(this);
+        }
+
+        cancel() {
+            this._disconnectFromParent();
+            this._realCancel();
+        }
+    });

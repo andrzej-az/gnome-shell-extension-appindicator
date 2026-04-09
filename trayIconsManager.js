@@ -50,7 +50,7 @@ export class TrayIconsManager extends Signals.EventEmitter {
         // ARGBA visuals.
         this._styleChangedID = Main.panel.connect('style-changed', () => {
             const panelBgColor = this._getPanelBgColor();
-            const {bgColor} = this._tray ?? {bgColor: null};
+            const { bgColor } = this._tray ?? { bgColor: null };
             if (bgColor === panelBgColor || bgColor?.equal(panelBgColor))
                 return;
 
@@ -77,7 +77,7 @@ export class TrayIconsManager extends Signals.EventEmitter {
         if (this._tray)
             return;
 
-        this._tray = new Shell.TrayManager({bgColor: this._getPanelBgColor()});
+        this._tray = new Shell.TrayManager({ bgColor: this._getPanelBgColor() });
         Util.connectSmart(this._tray, 'tray-icon-added', this, this.onTrayIconAdded);
         Util.connectSmart(this._tray, 'tray-icon-removed', this, this.onTrayIconRemoved);
 
@@ -101,9 +101,10 @@ export class TrayIconsManager extends Signals.EventEmitter {
     onTrayIconRemoved(_tray, icon) {
         try {
             const [trayIcon] = IndicatorStatusIcon.getTrayIcons().filter(i => i.icon === icon);
-            trayIcon.destroy();
+            if (trayIcon)
+                trayIcon.destroy();
         } catch (e) {
-            Util.Logger.warning(`No icon container found for ${icon.title} (${icon})`);
+            Util.Logger.warn(`No icon container found for ${icon.title} (${icon})`);
         }
     }
 
