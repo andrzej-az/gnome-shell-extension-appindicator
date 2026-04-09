@@ -21,14 +21,15 @@ import * as Interfaces from './interfaces.js';
 import * as TrayIconsManager from './trayIconsManager.js';
 import * as Util from './util.js';
 import * as Main from 'resource:///org/gnome/shell/ui/main.js';
-import { SettingsManager } from './settingsManager.js';
-import { destroyOverflowButton } from './indicatorStatusIcon.js';
+import {Logger} from './logger.js';
+import {SettingsManager} from './settingsManager.js';
+import {destroyOverflowButton} from './indicatorStatusIcon.js';
 
 export default class AppIndicatorExtension extends Extension.Extension {
     constructor(...args) {
         super(...args);
 
-        Util.Logger.init(this);
+        Logger.init(this);
         Interfaces.initialize(this);
 
         this._isEnabled = false;
@@ -44,7 +45,7 @@ export default class AppIndicatorExtension extends Extension.Extension {
             global['--appindicator-extension-on-reload']();
 
         global['--appindicator-extension-on-reload'] = () => {
-            Util.Logger.debug('Reload detected, destroying old watchdog');
+            Logger.debug('Reload detected, destroying old watchdog');
             this._watchDog.destroy();
             this._watchDog = null;
         };
@@ -89,6 +90,6 @@ export default class AppIndicatorExtension extends Extension.Extension {
             return;
 
         this._statusNotifierWatcher = new StatusNotifierWatcher.StatusNotifierWatcher(
-            this._watchDog);
+            this, this._watchDog);
     }
 }

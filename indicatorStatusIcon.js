@@ -595,6 +595,7 @@ export const BaseStatusIcon = GObject.registerClass(
             this._setIconActor(iconActor);
             this._showIfReady();
             this._updateIconPadding();
+            this.set_style(IndicatorBaseStatusIcon.DEFAULT_STYLE);
         }
 
         _setIconActor(icon) {
@@ -616,6 +617,19 @@ export const BaseStatusIcon = GObject.registerClass(
                     this._monitorIconEffects();
                 });
             }
+        }
+
+        static get DEFAULT_STYLE() {
+            const settings = SettingsManager.getDefaultGSettings();
+            if (!settings.get_boolean('compact-mode-enabled'))
+                return null; // drop to default -natural-hpadding.
+
+            return '-natural-hpadding: 10px';
+        }
+
+        _updateCompactMode() {
+            this._icon.set_style(AppIndicator.IconActor.DEFAULT_STYLE);
+            this.set_style(IndicatorBaseStatusIcon.DEFAULT_STYLE);
         }
 
         _onDestroy() {
@@ -758,6 +772,7 @@ export const IndicatorStatusIcon = GObject.registerClass(
         _init(indicator) {
             super._init(0.5, indicator.accessibleName,
                 new AppIndicator.IconActor(indicator, DEFAULT_ICON_SIZE));
+            this._clickGesture?.set_enabled(false);
             this._indicator = indicator;
 
             this._lastClickTime = -1;

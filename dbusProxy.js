@@ -40,14 +40,18 @@ export const DBusProxy = GObject.registerClass({
                 (_proxy, ...args) => this._onSignal(...args)));
         }
 
-        this._signalIds.push(this.connect('notify::g-name-owner', () =>
-            this._onNameOwnerChanged()));
+        this._signalIds.push(this.connect('notify::g-name-owner', () => {
+            if (!this.gNameOwner) {
+                this._cancellable.cancel();
+                this._cancellable = new Gio.Cancellable();
+            }
+            this._onNameOwnerChanged();
+        }));
     }
 
     async initAsync(cancellable) {
-        cancellable = new CancellableChild(cancellable);
-        await this.init_async(GLib.PRIORITY_DEFAULT, cancellable);
-        this._cancellable = cancellable;
+        this._cancellable = new CancellableChild(cancellable);
+        await this.init_async(GLib.PRIORITY_DEFAULT, this._cancellable);
 
         this.gInterfaceInfo.methods.map(m => m.name).forEach(method =>
             this._ensureAsyncMethod(method));
