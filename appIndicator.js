@@ -419,6 +419,9 @@ export class AppIndicator extends Signals.EventEmitter {
         this._proxy = new AppIndicatorProxy(busName, object);
         this._invalidatedPixmapsIcons = new Set();
 
+        this._idOverride = null;
+        this._titleOverride = null;
+
         this._setupProxy().catch(logError);
         Util.connectSmart(this._proxy, 'g-properties-changed', this, this._onPropertiesChanged);
         Util.connectSmart(this._proxy, 'notify::g-name-owner', this, this._nameOwnerChanged);
@@ -465,10 +468,46 @@ export class AppIndicator extends Signals.EventEmitter {
         try {
             this._commandLine = await DBusUtils.getProcessName(this.busName,
                 cancellable, GLib.PRIORITY_LOW);
+
+            this._maybeRefineIdentity();
+            this.emit('command-line-ready');
         } catch (e) {
             if (!e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
                 Util.Logger.debug(
                     `${this.uniqueId}, failed getting command line: ${e.message}`);
+            }
+        }
+    }
+
+    _maybeRefineIdentity() {
+        if (!this._commandLine)
+            return;
+
+        const id = this.id || '';
+        const title = this.title || '';
+        const isGenericId = id.startsWith('chrome_status_icon');
+        const isGenericTitle = title.startsWith('chrome_status_icon');
+
+        if (isGenericId || isGenericTitle) {
+            const cmdline = this._commandLine.trim().split(/\s+/);
+            if (!cmdline.length)
+                return;
+
+            let bestName = null;
+            const genericBinaries = ['electron', 'gjs', 'python', 'perl', 'ruby', 'bash', 'sh', 'bwrap'];
+
+            for (const arg of cmdline) {
+                if (arg.startsWith('-')) continue;
+                const basename = GLib.path_get_basename(arg);
+                if (basename && !genericBinaries.includes(basename.toLowerCase())) {
+                    bestName = basename;
+                    break;
+                }
+            }
+
+            if (bestName) {
+                if (isGenericId) this._idOverride = bestName;
+                if (isGenericTitle) this._titleOverride = bestName;
             }
         }
     }
@@ -551,7 +590,7 @@ export class AppIndicator extends Signals.EventEmitter {
     }
 
     get id() {
-        return this._proxy.Id;
+        return this._idOverride || this._proxy.Id;
     }
 
     get uniqueId() {
@@ -564,6 +603,29 @@ export class AppIndicator extends Signals.EventEmitter {
 
     get label() {
         return this._proxy.XAyatanaLabel || null;
+    }
+
+    get friendlyTitle() {
+        if (this._titleOverride)
+            return this._titleOverride;
+
+        if (this.title && !this.title.startsWith(':'))
+            return this.title;
+
+        return this.id || 'Unknown';
+    }
+
+    get stableId() {
+        let sid = this.id;
+        if (sid && sid !== 'StatusNotifierItem' && sid !== 'electron_status_icon' && !sid.startsWith(':'))
+            return sid;
+
+        // Fallback to title if the ID is generic or missing
+        const title = this.friendlyTitle;
+        if (title && title !== 'Unknown' && !title.startsWith(':'))
+            return title;
+
+        return sid || this.uniqueId;
     }
 
     get accessibleName() {
@@ -594,6 +656,10 @@ export class AppIndicator extends Signals.EventEmitter {
             name: this._proxy.IconName,
             pixmap: this._getPixmapProperty(SNIconType.NORMAL),
         };
+    }
+
+    get icon_name() {
+        return this.icon.name;
     }
 
     get overlayIcon() {
@@ -1258,6 +1324,13 @@ class AppIndicatorsIconActor extends St.Icon {
             delete this._iconTheme;
 
             const file = Gio.File.new_for_path(name);
+            if (name.startsWith('/app/') && !file.query_exists(null)) {
+                const basename = GLib.path_get_basename(name);
+                const dotIdx = basename.lastIndexOf('.');
+                const iconName = dotIdx > 0 ? basename.substring(0, dotIdx) : basename;
+                return {name: iconName, iconInfo: null, file: null};
+            }
+
             return {file, iconInfo: null, name: null};
         }
 
@@ -1303,6 +1376,14 @@ class AppIndicatorsIconActor extends St.Icon {
             const logger = this.gicon ? Util.Logger.debug : Util.Logger.warn;
             logger(`${this.debugId}, Impossible to lookup icon ` +
                 `for '${name}' in ${themePath}`);
+
+            // If it's a Flatpak, the path might be inside the sandbox.
+            // Try to see if it's a standard-looking path we can guess the host equivalent for.
+            if (themePath.startsWith('/app/')) {
+                const hostPath = themePath.replace('/app/', '/var/lib/flatpak/app/');
+                // This is a bit of a guess, but without the AppID it's the best we can do here.
+                // However, usually Flatpaks export icons to standard locations that the shell already sees.
+            }
 
             return emptyIconData;
         }

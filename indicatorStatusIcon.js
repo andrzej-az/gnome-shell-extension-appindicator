@@ -254,7 +254,7 @@ const AppIndicatorOverflowButton = GObject.registerClass(
             });
 
             this._icon = new St.Icon({
-                icon_name: 'view-more-symbolic',
+                icon_name: 'pan-up-symbolic',
                 style_class: 'system-status-icon',
             });
             this.set_child(this._icon);
@@ -290,6 +290,11 @@ const AppIndicatorOverflowButton = GObject.registerClass(
 
             // Create custom popup
             this._popup = new OverflowPopup(this);
+
+            // Toggle icon based on popup visibility
+            this._popup.connect('notify::visible', () => {
+                this._icon.icon_name = this._popup.visible ? 'pan-down-symbolic' : 'pan-up-symbolic';
+            });
 
             // Settings listener to update icons dynamically
             const settings = SettingsManager.getDefaultGSettings();
@@ -408,12 +413,16 @@ export function addIconToPanel(statusIcon) {
         ];
 
         for (const icon of allExisting) {
-            if (icon instanceof BaseStatusIcon && icon !== statusIcon && icon.stableId === stableId) {
-                console.log(`[AppIndicator] Destroying zombie/duplicate icon for ${stableId}`);
-                if (icon.get_parent()) {
-                    icon.get_parent().remove_child(icon);
+            if (icon instanceof BaseStatusIcon && icon !== statusIcon) {
+                if (icon.uniqueId === uniqueId) {
+                    console.log(`[AppIndicator] Destroying duplicate icon for ${uniqueId}`);
+                    icon.destroy();
+                } else if (icon.stableId === stableId) {
+                    // This might be a zombie of the same app (restarted) or a different app
+                    // with a generic ID (e.g. Slack vs Element).
+                    // We check if it's alive before taking any action.
+                    icon._indicator.checkAlive();
                 }
-                icon.destroy();
             }
         }
 
@@ -589,7 +598,9 @@ export const BaseStatusIcon = GObject.registerClass(
             if (!super._onDestroy)
                 this.connect('destroy', () => this._onDestroy());
 
-            this._box = new St.BoxLayout({ style_class: 'panel-status-indicators-box' });
+            this._box = new St.BoxLayout({
+                style_class: 'panel-status-indicators-box',
+            });
             this.add_child(this._box);
 
             this._setIconActor(iconActor);
@@ -624,7 +635,7 @@ export const BaseStatusIcon = GObject.registerClass(
             if (!settings.get_boolean('compact-mode-enabled'))
                 return null; // drop to default -natural-hpadding.
 
-            return '-natural-hpadding: 10px';
+            return '-natural-hpadding: 1px';
         }
 
         _updateCompactMode() {
