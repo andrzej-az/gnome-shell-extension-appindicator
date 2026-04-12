@@ -60,7 +60,7 @@ const OverflowPopup = GObject.registerClass({
             vertical: false,
         });
 
-        this._backgroundBin.set_child(this._iconBox);
+        this._backgroundBin.child = this._iconBox;
         this.add_child(this._backgroundBin);
 
         // Add to UI group and ensure it's handled as a chrome element (on top)
@@ -257,7 +257,7 @@ const AppIndicatorOverflowButton = GObject.registerClass(
                 icon_name: 'pan-up-symbolic',
                 style_class: 'system-status-icon',
             });
-            this.set_child(this._icon);
+            this.child = this._icon;
 
             // Create context menu
             this._menu = new PopupMenu.PopupMenu(this, 0.5, St.Side.TOP);
@@ -367,14 +367,61 @@ let _overflowButton = null;
 export function getOverflowButton() {
     if (!_overflowButton) {
         _overflowButton = new AppIndicatorOverflowButton();
-
-        // Add button to panel's right box
-        Main.panel._rightBox.insert_child_at_index(_overflowButton, -1);
-
         _overflowButton.visible = false;
 
-        // Ensure we clear the global reference if it's destroyed externally (e.g. extension disable)
+        const settings = SettingsManager.getDefaultGSettings();
+        const updatePos = () => {
+            if (!_overflowButton) return;
+
+            const pos = settings.get_string('tray-pos');
+            const box = (pos === 'left') ? Main.panel._leftBox : Main.panel._rightBox;
+            const role = 'appindicator-overflow';
+
+            try {
+                if (Main.panel.statusArea[role]) {
+                    const old = Main.panel.statusArea[role];
+                    if (old !== _overflowButton) {
+                        old.destroy();
+                    } else {
+                        old.get_parent()?.remove_child(old);
+                    }
+                    delete Main.panel.statusArea[role];
+                }
+
+                // Find the last indicator in the tray by matching children against statusArea
+                const children = box.get_children();
+                const statusArea = Main.panel.statusArea;
+                let lastIndicatorIndex = -1;
+
+                for (let i = 0; i < children.length; i++) {
+                    const child = children[i];
+                    // Check if this child is a registered status indicator (excluding ourselves)
+                    for (const roleName in statusArea) {
+                        if (statusArea[roleName] === child && roleName !== role) {
+                            lastIndicatorIndex = i;
+                            break;
+                        }
+                    }
+                }
+
+                const targetIndex = lastIndicatorIndex !== -1 ? lastIndicatorIndex + 1 : 0;
+                box.insert_child_at_index(_overflowButton, targetIndex);
+                Main.panel.statusArea[role] = _overflowButton;
+                
+                Util.Logger.debug(`[AppIndicator] Overflow button placed at index ${targetIndex} (last indicator was at ${lastIndicatorIndex})`);
+            } catch (e) {
+                Util.Logger.error(`[AppIndicator] Error in updatePos: ${e.message}`);
+            }
+        };
+
+        updatePos();
+        _overflowButton._trayPosId = settings.connect('changed::tray-pos', updatePos);
+
         _overflowButton.connect('destroy', () => {
+            if (_overflowButton._trayPosId) {
+                settings.disconnect(_overflowButton._trayPosId);
+                delete _overflowButton._trayPosId;
+            }
             _overflowButton = null;
         });
     }
@@ -383,6 +430,9 @@ export function getOverflowButton() {
 
 export function destroyOverflowButton() {
     if (_overflowButton) {
+        const role = 'appindicator-overflow';
+        if (Main.panel.statusArea[role] === _overflowButton)
+            delete Main.panel.statusArea[role];
         _overflowButton.destroy();
         _overflowButton = null;
     }
