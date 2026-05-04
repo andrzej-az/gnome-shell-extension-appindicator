@@ -44,6 +44,8 @@ const MAX_UPDATE_FREQUENCY = 30; // In ms
 const FALLBACK_ICON_NAME = 'image-loading-symbolic';
 const PIXMAPS_FORMAT = imports.gi.Cogl.PixelFormat.ARGB_8888;
 
+import { resolveAppIdentity } from './appIdentity.js';
+
 export const SNICategory = Object.freeze({
     APPLICATION: 'ApplicationStatus',
     COMMUNICATIONS: 'Communications',
@@ -412,6 +414,7 @@ export class AppIndicator extends Signals.EventEmitter {
         super();
 
         this.isReady = false;
+        this._identityResolved = false;
         this.busName = busName;
         this._uniqueId = Util.indicatorId(service, busName, object);
 
@@ -466,49 +469,21 @@ export class AppIndicator extends Signals.EventEmitter {
         }
 
         try {
-            this._commandLine = await DBusUtils.getProcessName(this.busName,
-                cancellable, GLib.PRIORITY_LOW);
-
-            this._maybeRefineIdentity();
-            this.emit('command-line-ready');
+            this._appIdentity = await resolveAppIdentity(this.busName, {
+                Id: this._proxy.Id,
+                Title: this._proxy.Title,
+                IconName: this._proxy.IconName
+            });
         } catch (e) {
             if (!e.matches(Gio.IOErrorEnum, Gio.IOErrorEnum.CANCELLED)) {
                 Util.Logger.debug(
-                    `${this.uniqueId}, failed getting command line: ${e.message}`);
+                    `${this.uniqueId}, failed resolving app identity: ${e.message}`);
             }
-        }
-    }
-
-    _maybeRefineIdentity() {
-        if (!this._commandLine)
-            return;
-
-        const id = this.id || '';
-        const title = this.title || '';
-        const isGenericId = id.startsWith('chrome_status_icon');
-        const isGenericTitle = title.startsWith('chrome_status_icon');
-
-        if (isGenericId || isGenericTitle) {
-            const cmdline = this._commandLine.trim().split(/\s+/);
-            if (!cmdline.length)
-                return;
-
-            let bestName = null;
-            const genericBinaries = ['electron', 'gjs', 'python', 'perl', 'ruby', 'bash', 'sh', 'bwrap'];
-
-            for (const arg of cmdline) {
-                if (arg.startsWith('-')) continue;
-                const basename = GLib.path_get_basename(arg);
-                if (basename && !genericBinaries.includes(basename.toLowerCase())) {
-                    bestName = basename;
-                    break;
-                }
-            }
-
-            if (bestName) {
-                if (isGenericId) this._idOverride = bestName;
-                if (isGenericTitle) this._titleOverride = bestName;
-            }
+        } finally {
+            this._identityResolved = true;
+            console.log(`[AppIndicator] [Identity] Resolved identity for ${this.uniqueId}: ${this.friendlyTitle}`);
+            this._checkIfReady();
+            this.emit('command-line-ready');
         }
     }
 
@@ -516,7 +491,7 @@ export class AppIndicator extends Signals.EventEmitter {
         const wasReady = this.isReady;
         let isReady = false;
 
-        if (this.hasNameOwner && this.id && this.menuPath)
+        if (this.hasNameOwner && this.id && this.menuPath && this._identityResolved)
             isReady = true;
 
         this.isReady = isReady;
@@ -590,7 +565,7 @@ export class AppIndicator extends Signals.EventEmitter {
     }
 
     get id() {
-        return this._idOverride || this._proxy.Id;
+        return this._appIdentity?.DerivedFriendlyTitle || this._proxy.Id;
     }
 
     get uniqueId() {
@@ -606,8 +581,8 @@ export class AppIndicator extends Signals.EventEmitter {
     }
 
     get friendlyTitle() {
-        if (this._titleOverride)
-            return this._titleOverride;
+        if (this._appIdentity && this._appIdentity.DerivedFriendlyTitle)
+            return this._appIdentity.DerivedFriendlyTitle;
 
         if (this.title && !this.title.startsWith(':'))
             return this.title;
@@ -616,16 +591,18 @@ export class AppIndicator extends Signals.EventEmitter {
     }
 
     get stableId() {
-        let sid = this.id;
-        if (sid && sid !== 'StatusNotifierItem' && sid !== 'electron_status_icon' && !sid.startsWith(':'))
-            return sid;
+        return this.friendlyTitle || this.id || this.uniqueId;
+    }
 
-        // Fallback to title if the ID is generic or missing
-        const title = this.friendlyTitle;
-        if (title && title !== 'Unknown' && !title.startsWith(':'))
-            return title;
+    get desktopFileId() {
+        if (this._appIdentity && this._appIdentity.DesktopAppInfo) {
+            return this._appIdentity.DesktopAppInfo.get_id();
+        }
+        return null;
+    }
 
-        return sid || this.uniqueId;
+    get identityResolved() {
+        return this._identityResolved;
     }
 
     get accessibleName() {

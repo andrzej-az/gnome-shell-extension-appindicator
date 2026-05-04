@@ -3,6 +3,7 @@ import Adw from 'gi://Adw';
 import Gtk from 'gi://Gtk';
 import GObject from 'gi://GObject';
 import Gio from 'gi://Gio';
+import GioUnix from 'gi://GioUnix';
 import GLib from 'gi://GLib';
 import { gettext as _ } from 'resource:///org/gnome/Shell/Extensions/js/extensions/prefs.js';
 
@@ -156,12 +157,32 @@ export var IconBehaviorPage = GObject.registerClass(
                         title: iconData.title || iconData.id,
                     });
 
-                    if (iconData.icon_name) {
-                        row.add_prefix(new Gtk.Image({
-                            icon_name: iconData.icon_name,
-                            pixel_size: 32,
-                        }));
+                    // Build icon: prefer DesktopAppInfo (highest quality), then SNI name, then themed fallbacks
+                    let gicon = null;
+
+                    if (iconData.iconName && iconData.iconName.endsWith('.desktop')) {
+                        const appInfo = GioUnix.DesktopAppInfo.new(iconData.iconName);
+                        if (appInfo) {
+                            gicon = appInfo.get_icon();
+                        }
                     }
+
+                    if (!gicon) {
+                        const iconNames = [];
+                        if (iconData.iconName && !iconData.iconName.endsWith('.desktop'))
+                            iconNames.push(iconData.iconName);
+                        
+                        const sanitizedTitle = (iconData.title || '').toLowerCase().replace(/\s+/g, '-');
+                        if (sanitizedTitle) iconNames.push(sanitizedTitle);
+                        
+                        iconNames.push('application-x-executable');
+                        gicon = Gio.ThemedIcon.new_from_names(iconNames);
+                    }
+
+                    row.add_prefix(new Gtk.Image({
+                        gicon,
+                        pixel_size: 32,
+                    }));
 
                     const box = new Gtk.Box({ spacing: 12 });
 

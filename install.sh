@@ -47,6 +47,13 @@ ninja -C "$BUILD_DIR" install
 # Extract UUID from metadata.json
 UUID=$(grep -Po '"uuid":\s*"\K[^"]+' metadata.json || true)
 
+# Reset metadata cache to prevent ghost icons from previous versions
+echo -e "${BLUE}Resetting metadata cache...${NC}"
+if [ -d "schemas" ]; then
+    gsettings --schemadir schemas reset org.gnome.shell.extensions.appindicator icon-metadata || true
+    gsettings --schemadir schemas reset org.gnome.shell.extensions.appindicator known-icons || true
+fi
+
 echo -e "${GREEN}Installation complete!${NC}"
 
 if [ -n "$UUID" ]; then

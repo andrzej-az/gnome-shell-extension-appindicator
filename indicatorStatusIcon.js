@@ -860,7 +860,8 @@ export const IndicatorStatusIcon = GObject.registerClass(
 
             this._showIfReady();
 
-            this._updateKnownIcons();
+            if (this._indicator.identityResolved)
+                this._updateKnownIcons();
         }
 
         _updateKnownIcons() {
@@ -870,34 +871,54 @@ export const IndicatorStatusIcon = GObject.registerClass(
             const settings = SettingsManager.getDefaultGSettings();
             let knownIcons = settings.get_strv('known-icons');
             const { stableId } = this;
+            const title = this._indicator.friendlyTitle;
+            const iconRef = this._indicator.desktopFileId || this._indicator.icon_name || '';
+
+            console.log(`[AppIndicator] [Metadata] Updating known icons for stableId='${stableId}': title='${title}', iconRef='${iconRef}'`);
+
             if (!knownIcons.includes(stableId)) {
+                console.log(`[AppIndicator] [Metadata] Adding '${stableId}' to known-icons`);
                 knownIcons.push(stableId);
                 settings.set_strv('known-icons', knownIcons);
             }
 
-            // Update metadata (Title, IconName)
-            // We use a{s(ss)} format
             const metadata = settings.get_value('icon-metadata').deep_unpack();
-            const title = this._indicator.friendlyTitle;
-            const iconName = this._indicator.icon_name || '';
-
-            // Only update if changed or missing
-            const oldTitle = metadata[stableId] ? metadata[stableId][0] : '';
-            const isOldTitleGeneric = oldTitle.startsWith('chrome_status_icon') || !oldTitle;
-            const isNewTitleGeneric = title.startsWith('chrome_status_icon');
 
             if (!metadata[stableId] ||
-                (isOldTitleGeneric && !isNewTitleGeneric) ||
                 metadata[stableId][0] !== title ||
-                metadata[stableId][1] !== iconName) {
+                metadata[stableId][1] !== iconRef) {
 
-                metadata[stableId] = [title, iconName];
+                metadata[stableId] = [title, iconRef];
                 settings.set_value('icon-metadata', new GLib.Variant('a{s(ss)}', metadata));
             }
         }
 
         _onDestroy() {
             const settings = SettingsManager.getDefaultGSettings();
+
+            const behaviors = settings.get_value('icon-activation-behavior').deep_unpack();
+            const overflows = settings.get_strv('overflow-icons') || [];
+            const hiddens = settings.get_strv('hidden-icons') || [];
+            
+            const title = this._indicator.friendlyTitle;
+            const hasCustomBehavior = (behaviors[title] !== undefined) || (behaviors[this.stableId] !== undefined);
+            const isOverflow = overflows.includes(title) || overflows.includes(this.stableId);
+            const isHidden = hiddens.includes(title) || hiddens.includes(this.stableId);
+            
+            if (!hasCustomBehavior && !isOverflow && !isHidden) {
+                const metadata = settings.get_value('icon-metadata').deep_unpack();
+                if (metadata[this.stableId]) {
+                    delete metadata[this.stableId];
+                    settings.set_value('icon-metadata', new GLib.Variant('a{s(ss)}', metadata));
+                }
+                
+                let knownIcons = settings.get_strv('known-icons');
+                if (knownIcons.includes(this.stableId)) {
+                    knownIcons = knownIcons.filter(id => id !== this.stableId);
+                    settings.set_strv('known-icons', knownIcons);
+                }
+            }
+
             if (this._overflowSignalId) {
                 settings.disconnect(this._overflowSignalId);
                 delete this._overflowSignalId;
@@ -1178,20 +1199,7 @@ export const IndicatorStatusTrayIcon = GObject.registerClass(
             if (!this._icon)
                 return 'Unknown';
 
-            let title = this._icon.wm_class || this._icon.title || 'Unknown';
-
-            // If we have a generic title like "Electron", or it's unknown,
-            // try to get a better one from the window class or properties
-            const lowerTitle = title.toLowerCase();
-            const genericNames = ['electron', 'unknown', 'asar', 'app', 'desktop', 'client', 'bin', 'service'];
-            if (genericNames.some(g => lowerTitle.includes(g))) {
-                if (this._icon.wm_class && !genericNames.some(g => this._icon.wm_class.toLowerCase().includes(g)))
-                    title = this._icon.wm_class;
-                else if (this._icon.title && !genericNames.some(g => this._icon.title.toLowerCase().includes(g)))
-                    title = this._icon.title;
-            }
-
-            return title;
+            return this._icon.wm_class || this._icon.title || 'Unknown';
         }
 
         _updateKnownIcons() {
@@ -1206,13 +1214,10 @@ export const IndicatorStatusTrayIcon = GObject.registerClass(
                 settings.set_strv('known-icons', knownIcons);
             }
 
-            // Update metadata (Title, IconName) for legacy tray icons
             const metadata = settings.get_value('icon-metadata').deep_unpack();
-
             const title = this.settingsTitle;
             const iconName = this._icon.icon_name || '';
 
-            // Only update if changed or missing
             if (!metadata[stableId] ||
                 metadata[stableId][0] !== title ||
                 metadata[stableId][1] !== iconName) {
@@ -1226,6 +1231,30 @@ export const IndicatorStatusTrayIcon = GObject.registerClass(
             Util.Logger.debug(`Destroying legacy tray icon ${this.uniqueId}`);
 
             const settings = SettingsManager.getDefaultGSettings();
+
+            const behaviors = settings.get_value('icon-activation-behavior').deep_unpack();
+            const overflows = settings.get_strv('overflow-icons') || [];
+            const hiddens = settings.get_strv('hidden-icons') || [];
+            
+            const title = this.settingsTitle;
+            const hasCustomBehavior = (behaviors[title] !== undefined) || (behaviors[this.stableId] !== undefined);
+            const isOverflow = overflows.includes(title) || overflows.includes(this.stableId);
+            const isHidden = hiddens.includes(title) || hiddens.includes(this.stableId);
+            
+            if (!hasCustomBehavior && !isOverflow && !isHidden) {
+                const metadata = settings.get_value('icon-metadata').deep_unpack();
+                if (metadata[this.stableId]) {
+                    delete metadata[this.stableId];
+                    settings.set_value('icon-metadata', new GLib.Variant('a{s(ss)}', metadata));
+                }
+                
+                let knownIcons = settings.get_strv('known-icons');
+                if (knownIcons.includes(this.stableId)) {
+                    knownIcons = knownIcons.filter(id => id !== this.stableId);
+                    settings.set_strv('known-icons', knownIcons);
+                }
+            }
+
             if (this._overflowSignalId) {
                 settings.disconnect(this._overflowSignalId);
                 delete this._overflowSignalId;
