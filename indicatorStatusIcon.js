@@ -64,9 +64,7 @@ const OverflowPopup = GObject.registerClass({
         this.add_child(this._backgroundBin);
 
         // Add to UI group and ensure it's handled as a chrome element (on top)
-        Main.layoutManager.addChrome(this, {
-            affectsInputRegion: true,
-        });
+        Main.layoutManager.addChrome(this);
 
         this._indicators = new Map();
         this._capturedEventId = 0;
