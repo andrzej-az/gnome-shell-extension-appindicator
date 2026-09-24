@@ -18,7 +18,7 @@ async function seekStatusNotifierItems() {
     const stdOutOutputStream = new GioUnix.OutputStream({fd: 1, closeFd: true});
     const introspectName = async name => {
         const nodes = DBusUtils.introspectBusObject(bus, name, cancellable,
-            ['org.kde.StatusNotifierItem']);
+            ['org.kde.StatusNotifierItem', 'org.freedesktop.StatusNotifierItem']);
         const services = [...uniqueNames.get(name)];
 
         for await (const node of nodes) {

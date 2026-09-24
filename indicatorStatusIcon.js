@@ -1028,8 +1028,10 @@ export const IndicatorStatusIcon = GObject.registerClass(
         _updateClickCount(event) {
             const [x, y] = event.get_coords();
             const time = event.get_time();
+            // Clutter.Settings.get_default() was removed; settings are now
+            // obtained through the actor's Clutter.Context instead.
             const { doubleClickDistance, doubleClickTime } =
-                Clutter.Settings.get_default();
+                this.get_context().get_settings();
 
             if (time > (this._lastClickTime + doubleClickTime) ||
                 (Math.abs(x - this._lastClickX) > doubleClickDistance) ||

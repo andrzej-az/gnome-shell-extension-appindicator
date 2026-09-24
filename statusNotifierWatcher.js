@@ -210,24 +210,20 @@ export class StatusNotifierWatcher {
         // it would be too easy if all application behaved the same
         // instead, ayatana patched gnome apps to send a path
         // while kde apps send a bus name
-        let [service] = params;
-        let busName, objPath;
+        const [service] = params;
+        const busName = invocation.get_sender();
+        let objPath;
 
         if (service.charAt(0) === '/') { // looks like a path
-            busName = invocation.get_sender();
             objPath = service;
-        } else if (service.match(DBusUtils.BUS_ADDRESS_REGEX)) {
-            try {
-                busName = await DBusUtils.getUniqueBusName(invocation.get_connection(),
-                    service, this._cancellable);
-            } catch (e) {
-                // If we can't get the unique name, it might be because the name is owned
-                // by a sandboxed app (flatpak/snap) and we can't see it.
-                // In that case, let's just assume the sender is the owner.
-                Util.Logger.warn(`Failed to get unique bus name for ${service}, using sender as fallback`);
-                busName = invocation.get_sender();
-            }
-            objPath = DEFAULT_ITEM_OBJECT_PATH;
+        } else {
+            // Some Chromium-based apps concatenate their own well-known bus
+            // name with a custom object path into a single string, with no
+            // separator hinting at the split point, e.g.
+            // "org.freedesktop.StatusNotifierItem-4-1/StatusNotifierItem/1"
+            const pathStart = service.indexOf('/');
+            objPath = pathStart === -1
+                ? DEFAULT_ITEM_OBJECT_PATH : service.slice(pathStart);
         }
 
         if (!busName || !objPath) {
